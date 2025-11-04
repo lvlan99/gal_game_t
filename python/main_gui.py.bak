@@ -1,0 +1,177 @@
+# -*- coding: utf-8 -*-
+import tkinter as tk
+from tkinter import messagebox, simpledialog
+import json
+import os
+from time import sleep
+
+# ------------------------------
+# 1. 剧情数据（和之前逻辑一致）
+# ------------------------------
+story_nodes = {
+    "start": {
+        "text": "你在森林中迷路，前方有两个岔路口：\n1. 向左走（阴森的山洞）\n2. 向右走（明亮的村庄）",
+        "choices": [
+            {"text": "进山洞", "next_node": "cave", "require": None},
+            {"text": "去村庄", "next_node": "village", "require": None}
+        ]
+    },
+    "cave": {
+        "text": "山洞里有一只熊！你需要逃跑...\n（你的勇气值+1）",
+        "choices": [
+            {"text": "往回跑", "next_node": "escape", "require": {"courage": 3}},
+            {"text": "装死", "next_node": "die", "require": None}
+        ]
+    },
+    "village": {
+        "text": "村庄里的人热情招待了你，你安全了！\n【好结局】",
+        "choices": []
+    },
+    "escape": {
+        "text": "你凭借勇气成功逃脱，找到了出路！\n【勇气结局】",
+        "choices": []
+    },
+    "die": {
+        "text": "熊识破了你的伪装，你失败了...\n【坏结局】",
+        "choices": []
+    }
+}
+
+initial_player = {"courage": 2, "hp": 100}  # 初始属性
+
+
+# ------------------------------
+# 2. 游戏主窗口类
+# ------------------------------
+class StoryGame(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("森林冒险 - 剧情游戏")  # 窗口标题
+        self.geometry("800x600")  # 窗口大小（宽x高）
+        self.current_node = "start"  # 当前剧情节点
+        self.player = initial_player.copy()  # 玩家属性
+
+        # 创建菜单栏（存档/读档）
+        self.create_menu()
+
+        # 创建文本显示区域（剧情内容）
+        self.text_area = tk.Text(self, wrap=tk.WORD, bg="#f0f0f0", font=("微软雅黑", 12))
+        self.text_area.pack(padx=20, pady=10, fill=tk.BOTH, expand=True)
+        self.text_area.config(state=tk.DISABLED)  # 禁止编辑
+
+        # 创建选项按钮区域
+        self.choices_frame = tk.Frame(self, bg="#f0f0f0")
+        self.choices_frame.pack(padx=20, pady=10, fill=tk.X)
+
+        # 开始游戏
+        self.update_story()
+
+    # 创建菜单栏
+    def create_menu(self):
+        menubar = tk.Menu(self)
+        # 存档菜单
+        save_menu = tk.Menu(menubar, tearoff=0)
+        save_menu.add_command(label="存档", command=self.save_game)
+        save_menu.add_command(label="读档", command=self.load_game)
+        menubar.add_cascade(label="游戏", menu=save_menu)
+        self.config(menu=menubar)
+
+    # 更新剧情文本和选项
+    def update_story(self):
+        # 清空之前的内容
+        self.text_area.config(state=tk.NORMAL)
+        self.text_area.delete(1.0, tk.END)
+        for widget in self.choices_frame.winfo_children():
+            widget.destroy()
+
+        # 获取当前节点数据
+        node = story_nodes.get(self.current_node)
+        if not node:
+            self.text_area.insert(tk.END, "剧情结束，感谢游玩！")
+            self.text_area.config(state=tk.DISABLED)
+            return
+
+        # 显示剧情文本（带角色属性）
+        self.text_area.insert(tk.END, f"【当前属性】勇气: {self.player['courage']} | 生命值: {self.player['hp']}\n\n")
+        self.text_area.insert(tk.END, node["text"])
+        self.text_area.config(state=tk.DISABLED)
+
+        # 显示选项按钮
+        for choice in node["choices"]:
+            # 检查选项条件（如勇气值）
+            if choice["require"]:
+                req_key = list(choice["require"].keys())[0]
+                req_val = choice["require"][req_key]
+                if self.player[req_key] < req_val:
+                    # 条件不足的选项置灰
+                    btn = tk.Button(
+                        self.choices_frame,
+                        text=f"{choice['text']}（需要{req_key}≥{req_val}）",
+                        state=tk.DISABLED,
+                        font=("微软雅黑", 10),
+                        height=2
+                    )
+                else:
+                    btn = tk.Button(
+                        self.choices_frame,
+                        text=choice["text"],
+                        command=lambda c=choice: self.choose_choice(c),
+                        font=("微软雅黑", 10),
+                        height=2
+                    )
+            else:
+                btn = tk.Button(
+                    self.choices_frame,
+                    text=choice["text"],
+                    command=lambda c=choice: self.choose_choice(c),
+                    font=("微软雅黑", 10),
+                    height=2
+                )
+            btn.pack(fill=tk.X, pady=5)
+
+    # 处理选项选择
+    def choose_choice(self, choice):
+        next_node = choice["next_node"]
+        # 示例：进山洞后勇气值+1
+        if next_node == "cave":
+            self.player["courage"] += 1
+        self.current_node = next_node
+        self.update_story()
+
+    # 存档功能
+    def save_game(self):
+        save_name = simpledialog.askstring("存档", "请输入存档名称：", parent=self)
+        if not save_name:
+            return
+        if not os.path.exists("saves"):
+            os.makedirs("saves")
+        data = {
+            "current_node": self.current_node,
+            "player": self.player
+        }
+        with open(f"saves/{save_name}.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        messagebox.showinfo("提示", f"存档 '{save_name}' 成功！")
+
+    # 读档功能
+    def load_game(self):
+        save_name = simpledialog.askstring("读档", "请输入存档名称：", parent=self)
+        if not save_name:
+            return
+        try:
+            with open(f"saves/{save_name}.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.current_node = data["current_node"]
+            self.player = data["player"]
+            self.update_story()
+            messagebox.showinfo("提示", f"读档 '{save_name}' 成功！")
+        except FileNotFoundError:
+            messagebox.showerror("错误", f"未找到存档 '{save_name}'！")
+
+
+# ------------------------------
+# 3. 启动游戏
+# ------------------------------
+if __name__ == "__main__":
+    game = StoryGame()
+    game.mainloop()  # 进入事件循环
